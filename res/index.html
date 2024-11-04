@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>Lease Information</title>
+        <style type="text/css">
+            body {
+                margin: 40px auto;
+                max-width: 600px;
+                line-height: 1.6;
+                font-size: 18;
+                padding: 0 10px;
+            }
+
+            h1, h2, h3 {
+                line-height: 1.3;
+            }
+
+            .link {
+                margin-left: 5px;
+                margin-right: 5px;
+            }
+        </style>
+    </head>
+    <body>
+        <h1>Lease Information</h1>
+
+        <p><b>IP:</b> {{address}}</p>
+
+        <p><b>Remaining lease time:</b> <span id="remaining-text">{{remaining}}</span></p>
+        <p>
+            <a href="supersecretdonotshare" class="link">[Renew lease]</a>
+            <a href="revoke" class="link">[Revoke lease]</a>
+        </p>
+    </body>
+    <script type="text/javascript">
+        function formatDuration(sec) {
+            if(sec < 60)
+                return `${sec}s`;
+            const m = Math.floor(sec/60);
+            if(m < 60)
+                return `${m}m`;
+            else if(m < 60 * 24)
+                return `${Math.floor(m/60)}h${m%60}m`;
+            else
+                return `${Math.floor(m/(60*24))}d${Math.floor((m%(60*24))/60)}h${m%60}m`;
+        }
+
+        function updateLease() {
+            fetch("lease")
+                .then((response) => {
+                    if(response.ok) {
+                        response.json().then((data) => {
+                            document.getElementById("remaining-text").innerText = formatDuration(data.lease);
+                        });
+                    }
+                });
+        }
+
+        setInterval(updateLease, 30000);
+    </script>
+</html>
+
