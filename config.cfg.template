@@ -1,0 +1,8 @@
+# vim: ft=toml
+
+listen_port = 3000
+lease_time = 3600
+grant_action = [ "/bin/true" ]
+revoke_action = [ "/bin/true" ]
+secret = "secret"
+
