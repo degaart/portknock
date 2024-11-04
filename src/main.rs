@@ -1,6 +1,6 @@
-#![allow(unused)]
+//#![allow(unused)]
 
-use std::{collections::HashMap, error::Error, fs::File, io::Read, net::{IpAddr, SocketAddr}, sync::Arc, time::Duration};
+use std::{collections::HashMap, fs::File, io::Read, net::{IpAddr, SocketAddr}, sync::Arc, time::Duration};
 use axum::{body::Body, extract::{ConnectInfo, Path, State}, http::{header, StatusCode}, response::{IntoResponse, Response}, routing::{get, post}, Router};
 use anyhow::{anyhow, Result};
 use serde::Deserialize;
@@ -13,6 +13,7 @@ struct AppConfig {
     grant_action: Vec<String>,
     revoke_action: Vec<String>,
     secret: String,
+    redirect_url: String,
 }
 
 struct AppState {
@@ -34,7 +35,8 @@ async fn execute_action(action: &Vec<String>, ip: &IpAddr) -> Result<()> {
 }
 
 async fn get_lease(state: Arc<AppState>, ip: &IpAddr) -> Result<Option<Duration>> {
-    let mut leases = state.leases.lock().await;
+    let state2 = Arc::clone(&state);
+    let leases = state2.leases.lock().await;
     if let Some(lease) = leases.get(ip) {
         let expiry = lease
             .checked_add(Duration::from_secs(state.cfg.lease_time))
@@ -42,8 +44,7 @@ async fn get_lease(state: Arc<AppState>, ip: &IpAddr) -> Result<Option<Duration>
         if let Some(remaining) = expiry.checked_duration_since(Instant::now()) {
             return Ok(Some(remaining));
         } else {
-            leases.remove(ip);
-            execute_action(&state.cfg.revoke_action, ip).await?;
+            remove_lease(state, ip).await?;
         }
     }
     Ok(None)
@@ -89,11 +90,18 @@ fn internal_server_error(e: impl std::fmt::Display) -> (StatusCode, String) {
     (StatusCode::INTERNAL_SERVER_ERROR, "Internal Server Error\n".to_string())
 }
 
-fn rickroll() -> Result<Response> {
-    Ok(Response::builder()
+fn redirect(target: &str) -> Response {
+    Response::builder()
         .status(StatusCode::SEE_OTHER)
-        .header(header::LOCATION, "https://www.youtube.com/watch?v=dQw4w9WgXcQ")
-        .body(Body::from("Never Gonna Give You Up\n"))?)
+        .header(header::LOCATION, target)
+        .body(
+            Body::from(format!("Redirecting to {target}...\n"))
+        )
+        .expect("Failed to create response")
+}
+
+fn rickroll(state: Arc<AppState>) -> Response {
+    redirect(&state.cfg.redirect_url)
 }
 
 async fn index(
@@ -107,7 +115,7 @@ async fn index(
      *  - a button to extend access
      * Else: rickroll the user
      */
-    let lease = get_lease(state, &addr.ip())
+    let lease = get_lease(Arc::clone(&state), &addr.ip())
         .await
         .map_err(|e| internal_server_error(e))?;
     if let Some(lease) = lease {
@@ -122,7 +130,7 @@ async fn index(
             .body(Body::from(body))
             .map_err(|e| internal_server_error(e))?)
     } else {
-        Ok(rickroll().map_err(|e| internal_server_error(e))?)
+        Ok(rickroll(state))
     }
 }
 
@@ -130,7 +138,7 @@ async fn lease(
     State(state): State<Arc<AppState>>,
     ConnectInfo(addr): ConnectInfo<SocketAddr>
 ) -> Result<Response, (StatusCode, String)> {
-    let lease = get_lease(state, &addr.ip())
+    let lease = get_lease(Arc::clone(&state), &addr.ip())
         .await
         .map_err(|e| internal_server_error(e))?;
     if let Some(lease) = lease {
@@ -142,7 +150,7 @@ async fn lease(
             .body(Body::from(body))
             .map_err(|e| internal_server_error(e))?)
     } else {
-        Ok(rickroll().map_err(|e| internal_server_error(e))?)
+        Ok(rickroll(state))
     }
 }
 
@@ -152,19 +160,12 @@ async fn knock(
     Path(path): Path<String>,
 ) -> Result<Response, (StatusCode, String)> {
     if path != state.cfg.secret && path != format!("{}/", state.cfg.secret) {
-        return Ok(rickroll().map_err(|e| internal_server_error(e))?);
+        return Ok(rickroll(state));
     }
 
-    let mut leases = state.leases.lock().await;
-    match leases.get_mut(&addr.ip()) {
-        Some(lease) => { *lease = Instant::now(); }
-        None => {
-            leases.insert(addr.ip().clone(), Instant::now());
-            if let Err(e) = execute_action(&state.cfg.grant_action, &addr.ip()).await {
-                return Err(internal_server_error(e));
-            }
-        }
-    }
+    add_lease(state, &addr.ip())
+        .await
+        .map_err(|e| internal_server_error(e))?;
     Ok((StatusCode::SEE_OTHER, [(header::LOCATION, "/")]).into_response())
 }
 
@@ -172,12 +173,9 @@ async fn revoke(
     State(state): State<Arc<AppState>>,
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
-    let mut leases = state.leases.lock().await;
-    leases.remove(&addr.ip());
-
-    if let Err(e) = execute_action(&state.cfg.revoke_action, &addr.ip()).await {
-        return Err(internal_server_error(e));
-    }
+    remove_lease(state, &addr.ip())
+        .await
+        .map_err(|e| internal_server_error(e))?;
 
     Ok(( StatusCode::SEE_OTHER, [(header::LOCATION, "/")] ))
 }
@@ -277,10 +275,10 @@ mod tests {
 
     #[test]
     fn test_format_duration() {
-        let s = 1;
+        let _s = 1;
         let m = 60;
         let h = m * 60;
-        let d = h * 24;
+        let _d = h * 24;
 
         let data = [
             58,
