@@ -1,12 +1,27 @@
 #![allow(unused)]
 
-use std::{collections::HashMap, fs::File, io::Read, net::{IpAddr, SocketAddr}, sync::Arc, time::Duration, str::FromStr};
-use axum::{body::Body, extract::{ConnectInfo, Path, State}, http::{header, StatusCode}, middleware, response::{IntoResponse, Response}, routing::{get, post}, Router};
 use anyhow::{anyhow, Result};
+use axum::{
+    body::Body,
+    extract::{ConnectInfo, Path, State},
+    http::{header, StatusCode},
+    middleware,
+    response::{IntoResponse, Response},
+    routing::{get, post},
+    Router,
+};
 use axum_server::tls_rustls::RustlsConfig;
+use log::{error, info};
 use serde::Deserialize;
+use std::{
+    collections::HashMap,
+    fs::File,
+    io::Read,
+    net::{IpAddr, SocketAddr},
+    sync::Arc,
+    time::Duration,
+};
 use tokio::{process::Command, sync::Mutex, time::Instant};
-use log::{debug, error, info, warn};
 
 #[derive(Debug, Deserialize)]
 struct AppConfigCertificates {
@@ -17,7 +32,7 @@ struct AppConfigCertificates {
 #[derive(Debug, Deserialize)]
 struct AppConfig {
     listen_port: u16,
-    lease_time: u64,                            /* Number of seconds a lease is valid for */
+    lease_time: u64, /* Number of seconds a lease is valid for */
     grant_action: Vec<String>,
     revoke_action: Vec<String>,
     secret: String,
@@ -27,7 +42,7 @@ struct AppConfig {
 }
 
 struct AppState {
-    leases: Mutex<HashMap<IpAddr, Instant>>,    /* Value: timestamp when the lease started */
+    leases: Mutex<HashMap<IpAddr, Instant>>, /* Value: timestamp when the lease started */
     cfg: AppConfig,
 }
 
@@ -46,9 +61,9 @@ async fn execute_action(action: &Vec<String>, ip: &IpAddr) -> Result<()> {
         };
 
         Err(anyhow!(
-                "Process exited with code {}: {}", 
-                output.status.code().unwrap_or(-1), 
-                message.trim()
+            "Process exited with code {}: {}",
+            output.status.code().unwrap_or(-1),
+            message.trim()
         ))
     } else {
         Ok(())
@@ -74,7 +89,9 @@ async fn get_lease(state: Arc<AppState>, ip: &IpAddr) -> Result<Option<Duration>
 async fn add_lease(state: Arc<AppState>, ip: &IpAddr) -> Result<()> {
     let mut leases = state.leases.lock().await;
     match leases.get_mut(ip) {
-        Some(lease) => { *lease = Instant::now(); }
+        Some(lease) => {
+            *lease = Instant::now();
+        }
         None => {
             leases.insert(ip.clone(), Instant::now());
             execute_action(&state.cfg.grant_action, &ip).await?;
@@ -104,22 +121,23 @@ fn format_duration(d: Duration) -> String {
     } else if m < 60 * 24 {
         format!("{}h{}m", m / 60, m % 60)
     } else {
-        format!("{}d{}h{}m", m / (60*24), (m % (60*24)) / 60, m % 60)
+        format!("{}d{}h{}m", m / (60 * 24), (m % (60 * 24)) / 60, m % 60)
     }
 }
 
 fn internal_server_error(e: impl std::fmt::Display) -> (StatusCode, String) {
     error!("Internal server error: {e}");
-    (StatusCode::INTERNAL_SERVER_ERROR, "Internal Server Error\n".to_string())
+    (
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "Internal Server Error\n".to_string(),
+    )
 }
 
 fn redirect(target: &str) -> Response {
     Response::builder()
         .status(StatusCode::SEE_OTHER)
         .header(header::LOCATION, target)
-        .body(
-            Body::from(format!("Redirecting to {target}...\n"))
-        )
+        .body(Body::from(format!("Redirecting to {target}...\n")))
         .expect("Failed to create response")
 }
 
@@ -129,7 +147,7 @@ fn rickroll(state: Arc<AppState>) -> Response {
 
 async fn index(
     State(state): State<Arc<AppState>>,
-    ConnectInfo(addr): ConnectInfo<SocketAddr>
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
 ) -> Result<Response, (StatusCode, String)> {
     /*
      * If access granted, show:
@@ -159,7 +177,7 @@ async fn index(
 
 async fn lease(
     State(state): State<Arc<AppState>>,
-    ConnectInfo(addr): ConnectInfo<SocketAddr>
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
 ) -> Result<Response, (StatusCode, String)> {
     let lease = get_lease(Arc::clone(&state), &addr.ip())
         .await
@@ -200,7 +218,7 @@ async fn revoke(
         .await
         .map_err(|e| internal_server_error(e))?;
 
-    Ok(( StatusCode::SEE_OTHER, [(header::LOCATION, "/")] ))
+    Ok((StatusCode::SEE_OTHER, [(header::LOCATION, "/")]))
 }
 
 async fn log_request_response(
@@ -208,7 +226,9 @@ async fn log_request_response(
     next: axum::middleware::Next,
 ) -> Response {
     let method = request.method().to_string();
-    let addr = request.extensions().get::<ConnectInfo<SocketAddr>>()
+    let addr = request
+        .extensions()
+        .get::<ConnectInfo<SocketAddr>>()
         .map(|addr| addr.0.ip().to_string())
         .unwrap_or("-".to_string());
     let url = request.uri().to_string();
@@ -232,9 +252,7 @@ async fn cleanup_task(state: Arc<AppState>) {
 
         let mut leases = state.leases.lock().await;
         leases.retain(|addr, start| {
-            if let Some(expiry) = start
-                .checked_add(Duration::from_secs(state.cfg.lease_time))
-            {
+            if let Some(expiry) = start.checked_add(Duration::from_secs(state.cfg.lease_time)) {
                 if let None = expiry.checked_duration_since(Instant::now()) {
                     info!("Removing expired lease for {addr}");
                     return false;
@@ -270,14 +288,13 @@ fn get_default_cfg_file() -> String {
         }
     }
 
-    let xdg_config_home = std::env::var("XDG_CONFIG_HOME")
-        .unwrap_or_else(|_| {
-            if let Ok(home) = std::env::var("HOME") {
-                format!("{home}/.config")
-            } else {
-                "/etc".to_string()
-            }
-        });
+    let xdg_config_home = std::env::var("XDG_CONFIG_HOME").unwrap_or_else(|_| {
+        if let Ok(home) = std::env::var("HOME") {
+            format!("{home}/.config")
+        } else {
+            "/etc".to_string()
+        }
+    });
     if exists(&format!("{xdg_config_home}/portknock/config.cfg")) {
         return format!("{xdg_config_home}/portknock/config.cfg");
     }
@@ -303,7 +320,7 @@ where
 
 #[tokio::main]
 async fn main() {
-    use clap::{command, arg};
+    use clap::{arg, command};
 
     let _logger = sexy::Logger::builder()
         .show_source(false)
@@ -312,12 +329,16 @@ async fn main() {
 
     let default_cfg_file = get_default_cfg_file();
     let args = command!()
-        .arg(arg!(-c --"config-file" <FILENAME> "Configuration file").default_value(&default_cfg_file))
+        .arg(
+            arg!(-c --"config-file" <FILENAME> "Configuration file")
+                .default_value(&default_cfg_file),
+        )
         .get_matches();
 
-    let cfg_file = args.get_one::<String>("config-file").expect("Unexpected None");
-    let cfg: AppConfig = read_config(cfg_file)
-        .expect("Failed to read configuration file");
+    let cfg_file = args
+        .get_one::<String>("config-file")
+        .expect("Unexpected None");
+    let cfg: AppConfig = read_config(cfg_file).expect("Failed to read configuration file");
 
     info!("Configuration: {cfg:?}");
     let state = Arc::new(AppState {
@@ -338,13 +359,27 @@ async fn main() {
 
     if state.cfg.tls.unwrap_or(false) {
         let config = RustlsConfig::from_pem_file(
-            &state.cfg.certificates.as_ref().expect("Required certificates configuration missing").cert, 
-            &state.cfg.certificates.as_ref().expect("Required certificates configuration missing").key,
-            ).await
-            .expect("Failed to create TLS config");
+            &state
+                .cfg
+                .certificates
+                .as_ref()
+                .expect("Required certificates configuration missing")
+                .cert,
+            &state
+                .cfg
+                .certificates
+                .as_ref()
+                .expect("Required certificates configuration missing")
+                .key,
+        )
+        .await
+        .expect("Failed to create TLS config");
         let addr = SocketAddr::from((
-                "0.0.0.0".parse::<IpAddr>().expect("Failed to parse IP address"),
-                state.cfg.listen_port));
+            "0.0.0.0"
+                .parse::<IpAddr>()
+                .expect("Failed to parse IP address"),
+            state.cfg.listen_port,
+        ));
         axum_server::bind_rustls(addr, config)
             .serve(app.into_make_service_with_connect_info::<SocketAddr>())
             .await
@@ -353,16 +388,19 @@ async fn main() {
         let listener = tokio::net::TcpListener::bind(("0.0.0.0", state.cfg.listen_port))
             .await
             .expect("Listener creation failed");
-        axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>())
-            .await
-            .expect("Server creation failed");
+        axum::serve(
+            listener,
+            app.into_make_service_with_connect_info::<SocketAddr>(),
+        )
+        .await
+        .expect("Server creation failed");
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
     use super::format_duration;
+    use std::time::Duration;
 
     #[test]
     fn test_format_duration() {
@@ -376,13 +414,12 @@ mod tests {
             59,
             60,
             61,
-            (2*h)+(30*m)+30,
-            24*h,
-            (24*h)+(6*h)+(30*m),
+            (2 * h) + (30 * m) + 30,
+            24 * h,
+            (24 * h) + (6 * h) + (30 * m),
         ];
         for t in data {
             println!("{t}s --> {}", format_duration(Duration::from_secs(t)));
         }
     }
 }
-
