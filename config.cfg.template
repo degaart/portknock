@@ -1,14 +1,15 @@
 # vim: ft=toml
 
 listen_port = 3000
-lease_time = 3600
-grant_action = [ "/bin/true" ]
-revoke_action = [ "/bin/true" ]
-secret = "secret"
+lease_time = 28800
+grant_action = [ "/usr/sbin/iptables", "-I", "INPUT", "-j", "ACCEPT", "-s" ]
+revoke_action = [ "/usr/sbin/iptables", "-D", "INPUT", "-j", "ACCEPT", "-s" ]
+secret = "supersecretdonotshare"
 redirect_url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
 tls = true
 
 [certificates]
-cert = "certs/localhost.crt"
-key = "certs/localhost.key"
+cert = "/etc/portknock/snakeoil.crt"
+key = "/etc/portknock/snakeoil.key"
+
 
