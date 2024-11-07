@@ -5,7 +5,7 @@ use axum::{body::Body, extract::{ConnectInfo, Path, State}, http::{header, Statu
 use anyhow::{anyhow, Result};
 use serde::Deserialize;
 use tokio::{process::Command, sync::Mutex, time::Instant};
-use log::{debug, error, info};
+use log::{debug, error, info, warn};
 
 #[derive(Debug, Deserialize)]
 struct AppConfig {
@@ -23,13 +23,24 @@ struct AppState {
 }
 
 async fn execute_action(action: &Vec<String>, ip: &IpAddr) -> Result<()> {
-    let status = Command::new(&action[0])
+    let output = Command::new(&action[0])
         .args(action.iter().skip(1).collect::<Vec<&String>>())
         .arg(ip.to_string())
-        .status()
+        .output()
         .await?;
-    if !status.success() {
-        Err(anyhow!("Process exited with code {}", status.code().unwrap_or(-1)))
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let message = if stderr.is_empty() {
+            String::from_utf8_lossy(&output.stdout)
+        } else {
+            stderr
+        };
+
+        Err(anyhow!(
+                "Process exited with code {}: {}", 
+                output.status.code().unwrap_or(-1), 
+                message.trim()
+        ))
     } else {
         Ok(())
     }
@@ -58,6 +69,7 @@ async fn add_lease(state: Arc<AppState>, ip: &IpAddr) -> Result<()> {
         None => {
             leases.insert(ip.clone(), Instant::now());
             execute_action(&state.cfg.grant_action, &ip).await?;
+            info!("Added lease for {ip}");
         }
     }
     Ok(())
@@ -68,6 +80,7 @@ async fn remove_lease(state: Arc<AppState>, ip: &IpAddr) -> Result<()> {
     leases.remove(ip);
 
     execute_action(&state.cfg.revoke_action, ip).await?;
+    info!("Removed lease for {ip}");
     Ok(())
 }
 
