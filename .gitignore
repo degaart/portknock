@@ -1,3 +1,4 @@
 /target
 /config.cfg
 *.bak
+/certs
