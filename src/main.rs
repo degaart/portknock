@@ -203,7 +203,7 @@ async fn revoke(
     Ok(( StatusCode::SEE_OTHER, [(header::LOCATION, "/")] ))
 }
 
-pub async fn log_request_response(
+async fn log_request_response(
     request: axum::extract::Request,
     next: axum::middleware::Next,
 ) -> Response {
@@ -224,6 +224,26 @@ pub async fn log_request_response(
     info!("{addr} {status} {method} {url} {user_agent}");
 
     response
+}
+
+async fn cleanup_task(state: Arc<AppState>) {
+    loop {
+        tokio::time::sleep(Duration::from_secs(10)).await;
+
+        let mut leases = state.leases.lock().await;
+        leases.retain(|addr, start| {
+            if let Some(expiry) = start
+                .checked_add(Duration::from_secs(state.cfg.lease_time))
+            {
+                if let None = expiry.checked_duration_since(Instant::now()) {
+                    info!("Removing expired lease for {addr}");
+                    return false;
+                }
+            }
+            true
+        });
+        drop(leases);
+    }
 }
 
 fn get_default_cfg_file() -> String {
@@ -304,6 +324,7 @@ async fn main() {
         leases: Mutex::new(HashMap::new()),
         cfg,
     });
+
     let app = Router::new()
         .route("/:secret", get(knock))
         .route("/revoke", get(revoke))
@@ -312,6 +333,8 @@ async fn main() {
         .fallback(get(index))
         .with_state(Arc::clone(&state))
         .layer(middleware::from_fn(log_request_response));
+
+    tokio::spawn(cleanup_task(Arc::clone(&state)));
 
     if state.cfg.tls.unwrap_or(false) {
         let config = RustlsConfig::from_pem_file(
