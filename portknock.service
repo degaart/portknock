@@ -1,0 +1,11 @@
+[Unit]
+After=network.target
+
+[Service]
+Type=simple
+Restart=on-failure
+RestartSec=1min
+ExecStart=/usr/local/bin/portknock
+
+[Install]
+WantedBy=multi-user.target
