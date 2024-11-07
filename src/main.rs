@@ -1,11 +1,18 @@
 #![allow(unused)]
 
-use std::{collections::HashMap, fs::File, io::Read, net::{IpAddr, SocketAddr}, sync::Arc, time::Duration};
+use std::{collections::HashMap, fs::File, io::Read, net::{IpAddr, SocketAddr}, sync::Arc, time::Duration, str::FromStr};
 use axum::{body::Body, extract::{ConnectInfo, Path, State}, http::{header, StatusCode}, middleware, response::{IntoResponse, Response}, routing::{get, post}, Router};
 use anyhow::{anyhow, Result};
+use axum_server::tls_rustls::RustlsConfig;
 use serde::Deserialize;
 use tokio::{process::Command, sync::Mutex, time::Instant};
 use log::{debug, error, info, warn};
+
+#[derive(Debug, Deserialize)]
+struct AppConfigCertificates {
+    cert: String,
+    key: String,
+}
 
 #[derive(Debug, Deserialize)]
 struct AppConfig {
@@ -15,6 +22,8 @@ struct AppConfig {
     revoke_action: Vec<String>,
     secret: String,
     redirect_url: String,
+    tls: Option<bool>,
+    certificates: Option<AppConfigCertificates>,
 }
 
 struct AppState {
@@ -278,6 +287,7 @@ async fn main() {
 
     let _logger = sexy::Logger::builder()
         .show_source(false)
+        .level(log::LevelFilter::Info)
         .build();
 
     let default_cfg_file = get_default_cfg_file();
@@ -302,12 +312,28 @@ async fn main() {
         .fallback(get(index))
         .with_state(Arc::clone(&state))
         .layer(middleware::from_fn(log_request_response));
-    let listener = tokio::net::TcpListener::bind(("0.0.0.0", state.cfg.listen_port))
-        .await
-        .expect("Listener creation failed");
-    axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>())
-        .await
-        .expect("Server creation failed");
+
+    if state.cfg.tls.unwrap_or(false) {
+        let config = RustlsConfig::from_pem_file(
+            &state.cfg.certificates.as_ref().expect("Required certificates configuration missing").cert, 
+            &state.cfg.certificates.as_ref().expect("Required certificates configuration missing").key,
+            ).await
+            .expect("Failed to create TLS config");
+        let addr = SocketAddr::from((
+                "0.0.0.0".parse::<IpAddr>().expect("Failed to parse IP address"),
+                state.cfg.listen_port));
+        axum_server::bind_rustls(addr, config)
+            .serve(app.into_make_service_with_connect_info::<SocketAddr>())
+            .await
+            .expect("Failed to create server");
+    } else {
+        let listener = tokio::net::TcpListener::bind(("0.0.0.0", state.cfg.listen_port))
+            .await
+            .expect("Listener creation failed");
+        axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>())
+            .await
+            .expect("Server creation failed");
+    }
 }
 
 #[cfg(test)]

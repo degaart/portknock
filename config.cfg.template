@@ -5,4 +5,10 @@ lease_time = 3600
 grant_action = [ "/bin/true" ]
 revoke_action = [ "/bin/true" ]
 secret = "secret"
+redirect_url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+tls = true
+
+[certificates]
+cert = "certs/localhost.crt"
+key = "certs/localhost.key"
 
