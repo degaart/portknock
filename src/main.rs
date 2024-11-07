@@ -1,10 +1,11 @@
-//#![allow(unused)]
+#![allow(unused)]
 
 use std::{collections::HashMap, fs::File, io::Read, net::{IpAddr, SocketAddr}, sync::Arc, time::Duration};
-use axum::{body::Body, extract::{ConnectInfo, Path, State}, http::{header, StatusCode}, response::{IntoResponse, Response}, routing::{get, post}, Router};
+use axum::{body::Body, extract::{ConnectInfo, Path, State}, http::{header, StatusCode}, middleware, response::{IntoResponse, Response}, routing::{get, post}, Router};
 use anyhow::{anyhow, Result};
 use serde::Deserialize;
 use tokio::{process::Command, sync::Mutex, time::Instant};
+use log::{debug, error, info};
 
 #[derive(Debug, Deserialize)]
 struct AppConfig {
@@ -86,7 +87,7 @@ fn format_duration(d: Duration) -> String {
 }
 
 fn internal_server_error(e: impl std::fmt::Display) -> (StatusCode, String) {
-    eprintln!("Internal server error: {e}");
+    error!("Internal server error: {e}");
     (StatusCode::INTERNAL_SERVER_ERROR, "Internal Server Error\n".to_string())
 }
 
@@ -180,6 +181,29 @@ async fn revoke(
     Ok(( StatusCode::SEE_OTHER, [(header::LOCATION, "/")] ))
 }
 
+pub async fn log_request_response(
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> Response {
+    let method = request.method().to_string();
+    let addr = request.extensions().get::<ConnectInfo<SocketAddr>>()
+        .map(|addr| addr.0.ip().to_string())
+        .unwrap_or("-".to_string());
+    let url = request.uri().to_string();
+    let user_agent = request
+        .headers()
+        .get(header::USER_AGENT)
+        .map(|value| value.to_str().unwrap_or("-").to_string())
+        .unwrap_or("-".to_string());
+
+    let response = next.run(request).await;
+
+    let status = response.status().as_u16();
+    info!("{addr} {status} {method} {url} {user_agent}");
+
+    response
+}
+
 fn get_default_cfg_file() -> String {
     /*
      * Config file search path:
@@ -239,6 +263,10 @@ where
 async fn main() {
     use clap::{command, arg};
 
+    let _logger = sexy::Logger::builder()
+        .show_source(false)
+        .build();
+
     let default_cfg_file = get_default_cfg_file();
     let args = command!()
         .arg(arg!(-c --"config-file" <FILENAME> "Configuration file").default_value(&default_cfg_file))
@@ -248,7 +276,7 @@ async fn main() {
     let cfg: AppConfig = read_config(cfg_file)
         .expect("Failed to read configuration file");
 
-    println!("Configuration: {cfg:?}");
+    info!("Configuration: {cfg:?}");
     let state = Arc::new(AppState {
         leases: Mutex::new(HashMap::new()),
         cfg,
@@ -259,7 +287,8 @@ async fn main() {
         .route("/revoke", post(revoke))
         .route("/lease", get(lease))
         .fallback(get(index))
-        .with_state(Arc::clone(&state));
+        .with_state(Arc::clone(&state))
+        .layer(middleware::from_fn(log_request_response));
     let listener = tokio::net::TcpListener::bind(("0.0.0.0", state.cfg.listen_port))
         .await
         .expect("Listener creation failed");
