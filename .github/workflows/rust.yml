@@ -18,7 +18,7 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     - name: Build
-      run: cargo build --verbose
+      run: bash .github/build.sh
     - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
