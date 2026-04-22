@@ -367,7 +367,7 @@ where
     Ok(toml::from_str::<T>(&buf)?)
 }
 
-#[tokio::main]
+#[tokio::main(flavor = "current_thread")]
 async fn main() {
     use clap::{arg, command};
 
