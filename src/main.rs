@@ -11,7 +11,7 @@ use axum::{
     Router,
 };
 use axum_server::tls_rustls::RustlsConfig;
-use log::{error, info};
+use log::{error, info, debug};
 use serde::Deserialize;
 use std::{
     collections::HashMap,
@@ -71,9 +71,11 @@ async fn execute_action(action: &Vec<String>, ip: &IpAddr) -> Result<()> {
 }
 
 async fn get_lease(state: Arc<AppState>, ip: &IpAddr) -> Result<Option<Duration>> {
-    let state2 = Arc::clone(&state);
-    let leases = state2.leases.lock().await;
-    if let Some(lease) = leases.get(ip) {
+    let leases = state.leases.lock().await;
+    let lease = leases.get(ip).map(|l| l.clone());
+    drop(leases);
+
+    if let Some(lease) = lease {
         let expiry = lease
             .checked_add(Duration::from_secs(state.cfg.lease_time))
             .ok_or_else(|| anyhow!("Invalid lease"))?;
@@ -94,6 +96,8 @@ async fn add_lease(state: Arc<AppState>, ip: &IpAddr) -> Result<()> {
         }
         None => {
             leases.insert(ip.clone(), Instant::now());
+            drop(leases);
+
             execute_action(&state.cfg.grant_action, &ip).await?;
             info!("Added lease for {ip}");
         }
@@ -104,6 +108,7 @@ async fn add_lease(state: Arc<AppState>, ip: &IpAddr) -> Result<()> {
 async fn remove_lease(state: Arc<AppState>, ip: &IpAddr) -> Result<()> {
     let mut leases = state.leases.lock().await;
     leases.remove(ip);
+    drop(leases);
 
     execute_action(&state.cfg.revoke_action, ip).await?;
     info!("Removed lease for {ip}");
@@ -251,16 +256,23 @@ async fn cleanup_task(state: Arc<AppState>) {
         tokio::time::sleep(Duration::from_secs(10)).await;
 
         let mut leases = state.leases.lock().await;
+        let mut expired = Vec::new();
         leases.retain(|addr, start| {
-            if let Some(expiry) = start.checked_add(Duration::from_secs(state.cfg.lease_time)) {
-                if let None = expiry.checked_duration_since(Instant::now()) {
-                    info!("Removing expired lease for {addr}");
-                    return false;
-                }
+            if start.elapsed().as_secs() > state.cfg.lease_time {
+                debug!("Removing expired lease for {addr}");
+                expired.push(addr.clone());
+                return false;
             }
             true
         });
         drop(leases);
+
+        for lease in expired {
+            info!("Removing expired lease for {lease}");
+            if let Err(e) = execute_action(&state.cfg.revoke_action, &lease).await {
+                error!("Error: {e}");
+            }
+        }
     }
 }
 
@@ -322,9 +334,15 @@ where
 async fn main() {
     use clap::{arg, command};
 
+    let log_level = if cfg!(debug_assertions) {
+        log::LevelFilter::Trace
+    } else {
+        log::LevelFilter::Info
+    };
+
     let _logger = sexy::Logger::builder()
         .show_source(false)
-        .level(log::LevelFilter::Info)
+        .level(log_level)
         .build();
 
     let default_cfg_file = get_default_cfg_file();
