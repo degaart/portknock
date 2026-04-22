@@ -40,7 +40,7 @@ jobs:
         - name: Install github cli
           run: |
             mkdir -pv /etc/apt/keyrings
-            curl -fL /etc/apt/keyrings/githubcli-archive-keyring.gpg "https://cli.github.com/packages/githubcli-archive-keyring.gpg"
+            curl -fL -o /etc/apt/keyrings/githubcli-archive-keyring.gpg "https://cli.github.com/packages/githubcli-archive-keyring.gpg"
             echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/github-cli.list
             apt-get update
             apt-get install -qy gh
