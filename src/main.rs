@@ -11,7 +11,7 @@ use axum::{
     Router,
 };
 use axum_server::tls_rustls::RustlsConfig;
-use log::{error, info, debug};
+use log::{debug, error, info};
 use serde::Deserialize;
 use std::{
     collections::HashMap,
@@ -89,19 +89,21 @@ async fn get_lease(state: Arc<AppState>, ip: &IpAddr) -> Result<Option<Duration>
 }
 
 async fn add_lease(state: Arc<AppState>, ip: &IpAddr) -> Result<()> {
+    let mut new_lease = false;
     let mut leases = state.leases.lock().await;
-    match leases.get_mut(ip) {
-        Some(lease) => {
-            *lease = Instant::now();
-        }
-        None => {
-            leases.insert(ip.clone(), Instant::now());
-            drop(leases);
-
-            execute_action(&state.cfg.grant_action, &ip).await?;
-            info!("Added lease for {ip}");
-        }
+    if let None = leases.get(ip) {
+        leases.insert(ip.clone(), Instant::now());
+        new_lease = true;
     }
+    drop(leases);
+
+    if new_lease {
+        execute_action(&state.cfg.grant_action, &ip).await?;
+        info!("Added lease for {ip}");
+    } else {
+        debug!("Lease for {ip} already exists");
+    }
+
     Ok(())
 }
 
@@ -224,6 +226,21 @@ async fn revoke(
         .map_err(|e| internal_server_error(e))?;
 
     Ok((StatusCode::SEE_OTHER, [(header::LOCATION, "/")]))
+}
+
+async fn renew(
+    State(state): State<Arc<AppState>>,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    info!("Renewing lease for {}", addr.ip());
+    let mut leases = state.leases.lock().await;
+    if let Some(lease) = leases.get_mut(&addr.ip()) {
+        *lease = Instant::now();
+    } else {
+        leases.insert(addr.ip(), Instant::now());
+    }
+    drop(leases);
+    Ok((StatusCode::OK, "OK").into_response())
 }
 
 async fn log_request_response(
@@ -368,6 +385,7 @@ async fn main() {
         .route("/:secret", get(knock))
         .route("/revoke", get(revoke))
         .route("/revoke", post(revoke))
+        .route("/renew", post(renew))
         .route("/lease", get(lease))
         .fallback(get(index))
         .with_state(Arc::clone(&state))

@@ -30,11 +30,15 @@
 
         <p><b>Remaining lease time:</b> <span id="remaining-text">{{remaining}}</span></p>
         <p>
-            <a href="hunter2" class="link">[Renew lease]</a>
+            <a href="#" class="link" id="renew">[Renew lease]</a>
             <a href="revoke" class="link">[Revoke lease]</a>
         </p>
     </body>
     <script type="text/javascript">
+        let lease;
+        let lock = false;
+        let timer;
+
         function formatDuration(sec) {
             if(sec < 60)
                 return `${sec}s`;
@@ -47,18 +51,62 @@
                 return `${Math.floor(m/(60*24))}d${Math.floor((m%(60*24))/60)}h${m%60}m`;
         }
 
-        function updateLease() {
-            fetch("lease")
-                .then((response) => {
-                    if(response.ok) {
-                        response.json().then((data) => {
-                            document.getElementById("remaining-text").innerText = formatDuration(data.lease);
-                        });
-                    }
-                });
+        async function fetchLease() {
+            try {
+                const response = await fetch("lease");
+                if (response.ok) {
+                    const data = await response.json();
+                    return data.lease;
+                } else {
+                    console.error(response);
+                }
+            } catch (e) {
+            }
+            return null;
         }
 
-        setInterval(updateLease, 30000);
+        async function updateLease() {
+            if (lock) {
+                return;
+            }
+
+            try {
+                lock = true;
+                if (lease == null) {
+                    lease = await fetchLease();
+                } else {
+                    lease--;
+                }
+
+                let text;
+                if (lease == null || lease <= 0) {
+                    clearInterval(timer);
+                    window.location.reload();
+                } else {
+                    text = formatDuration(lease);
+                }
+                document.getElementById("remaining-text").innerText = text;
+            } finally {
+                lock = false;
+            }
+        }
+
+        async function onRenew() {
+            const ret = await fetch("renew", {
+                method: "POST",
+                cache: "no-cache",
+                redirect: "manual",
+            });
+
+            if (!ret.ok && ret.status != 302 && ret.status != 303) {
+                console.error(ret);
+            }
+
+            updateLease();
+        }
+
+        document.getElementById("renew").addEventListener("click", onRenew);
+        timer = setInterval(updateLease, 1000);
     </script>
 </html>
 
