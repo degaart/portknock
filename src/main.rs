@@ -270,13 +270,33 @@ async fn log_request_response(
 
 async fn cleanup_task(state: Arc<AppState>) {
     loop {
-        tokio::time::sleep(Duration::from_secs(10)).await;
+        /* Determine how much time to sleep (nearest expiration) */
+        let mut nearest : Option<Instant> = None;
+        let mut leases = state.leases.lock().await;
+        for lease in leases.values() {
+            match nearest {
+                None => nearest = Some(*lease),
+                Some(value) => if lease.elapsed().as_secs() > value.elapsed().as_secs() {
+                    nearest = Some(*lease);
+                },
+            }
+        }
+        drop(leases);
+
+        /* We are guaranteed to not get any expiration until the end of sleep */
+        let sleep = if let Some(nearest) = nearest {
+            (nearest + Duration::from_secs(state.cfg.lease_time + 1)) - Instant::now()
+        } else {
+            Duration::from_secs(state.cfg.lease_time + 1)
+        };
+
+        debug!("Sleeping for {}s", sleep.as_secs());
+        tokio::time::sleep(sleep).await;
 
         let mut leases = state.leases.lock().await;
         let mut expired = Vec::new();
         leases.retain(|addr, start| {
             if start.elapsed().as_secs() > state.cfg.lease_time {
-                debug!("Removing expired lease for {addr}");
                 expired.push(addr.clone());
                 return false;
             }
