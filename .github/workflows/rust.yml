@@ -24,6 +24,6 @@ jobs:
       with:
         name: binaries
         path: |
-          target/debug/portknock
+          target/release/portknock
         retention-days: 90
   
