@@ -37,6 +37,13 @@ jobs:
           with:
             name: binaries
             path: ./portknock.zip
+        - name: Install github cli
+          run: |
+            mkdir -pv /etc/apt/keyrings
+            curl -fL /etc/apt/keyrings/githubcli-archive-keyring.gpg "https://cli.github.com/packages/githubcli-archive-keyring.gpg"
+            echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/github-cli.list
+            apt-get update
+            apt-get install -qy gh
         - name: Create release
           run: |
             gh release create ${{ github.ref_name }} ./portknock.zip \
@@ -44,8 +51,5 @@ jobs:
               --notes "Automated release"
           env:
             GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-
-
 
 
