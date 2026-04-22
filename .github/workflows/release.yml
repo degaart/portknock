@@ -30,6 +30,7 @@ jobs:
           tar Jcvf target/portknock.tar.xz -C target/release portknock
           gh release create ${{ github.ref_name }} target/portknock.tar.xz \
             --title "Release ${{ github.ref_name }}" \
+            --repo ${{ github.repository }} \
             --notes "Automated release"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
