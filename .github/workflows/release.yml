@@ -22,7 +22,7 @@ jobs:
         with:
           name: binaries
           path: |
-            target/portknock
+            target/release/portknock
           retention-days: 1
 
   release:
