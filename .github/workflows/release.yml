@@ -41,12 +41,12 @@ jobs:
           name: binaries
           path: target/artifacts
 
-      - name: List artifacts
-        run: ls -lAh target/artifacts
+      - name: Create tarball
+        run: tar Jcvf target/portknock.tar.xz -C target/artifacts .
 
       - name: Create release
         run: |
-          gh release create ${{ github.ref_name }} target/artifacts/binaries.zip \
+          gh release create ${{ github.ref_name }} target/portknock.tar.xz \
             --title "Release ${{ github.ref_name }}"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
