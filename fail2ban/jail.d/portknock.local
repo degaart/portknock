@@ -1,0 +1,14 @@
+[portknock]
+enabled  = true
+filter   = portknock
+backend  = systemd
+
+# Match the systemd unit name
+journalmatch = _SYSTEMD_UNIT=portknock.service
+
+# Ban settings
+maxretry = 20
+findtime = 600
+bantime  = 3600
+
+

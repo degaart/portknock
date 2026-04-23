@@ -48,6 +48,7 @@ jobs:
           cp target/artifacts/* "target/portknock-$VERSION/"
           chmod +x "target/portknock-$VERSION/portknock"
           cp config.cfg.template portknock.service "target/portknock-$VERSION/"
+          cp -r fail2ban "target/portknock-$VERSION/"
           tar Jcvf "target/portknock-$VERSION.tar.xz" -C target "portknock-$VERSION"
 
       - name: Create release
