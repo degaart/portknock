@@ -8,6 +8,6 @@ sed -i "s/^version *= *.*/version = ${VERSION}/" Cargo.toml
 
 git add -A
 git commit -m "chore: v${VERSION}"
-git tag -a "v${VERSION}"
+git tag -a "v${VERSION}" -m "v${VERSION}"
 echo "Version v${VERSION} tagged. Run \"git push --follow-tags\" to push"
 
