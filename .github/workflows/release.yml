@@ -39,11 +39,14 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: binaries
-          path: target/binaries.zip
+          path: target/artifacts
+
+      - name: List artifacts
+        run: ls -lAh target/artifacts
 
       - name: Create release
         run: |
-          gh release create ${{ github.ref_name }} target/binaries.zip \
+          gh release create ${{ github.ref_name }} target/artifacts/binaries.zip \
             --title "Release ${{ github.ref_name }}"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
