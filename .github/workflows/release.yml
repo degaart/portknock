@@ -43,11 +43,12 @@ jobs:
 
       - name: Create tarball
         run: |
-          mkdir target/portknock-${{ github.ref_name }}
-          cp target/artifacts/* target/portknock-${{ github.ref_name }}/
-          chmod +x target/portknock-${{ github.ref_name }}/portknock
-          cp config.cfg.template portknock.service target/portknock-${{ github.ref_name }}/
-          tar Jcvf target/portknock-${{ github.ref_name }}.tar.xz target/portknock-${{ github.ref_name }}
+          VERSION="${GITHUB_REF_NAME#v}"
+          mkdir -p "target/portknock-$VERSION"
+          cp target/artifacts/* "target/portknock-$VERSION/"
+          chmod +x "target/portknock-$VERSION/portknock"
+          cp config.cfg.template portknock.service "target/portknock-$VERSION/"
+          tar Jcvf "target/portknock-$VERSION.tar.xz" -C target "portknock-$VERSION"
 
       - name: Create release
         run: |
