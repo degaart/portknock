@@ -22,6 +22,8 @@ jobs:
         with:
           name: binaries
           path: |
+            config.cfg.template
+            portknock.service
             target/release/portknock
           retention-days: 1
 
@@ -42,11 +44,11 @@ jobs:
           path: target/artifacts
 
       - name: Create tarball
-        run: tar Jcvf target/portknock.tar.xz -C target/artifacts .
+        run: tar Jcvf target/portknock-${{ github.ref_name }}.tar.xz -C target/artifacts .
 
       - name: Create release
         run: |
-          gh release create ${{ github.ref_name }} target/portknock.tar.xz \
+          gh release create ${{ github.ref_name }} target/portknock-${{ github.ref_name }}.tar.xz \
             --title "Release ${{ github.ref_name }}"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
