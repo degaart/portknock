@@ -46,7 +46,7 @@ jobs:
           mkdir target/portknock-${{ github.ref_name }}
           cp target/artifacts/* target/portknock-${{ github.ref_name }}/
           chmod +x target/portknock-${{ github.ref_name }}/portknock
-          cp config.cfg.example portknock.service target/portknock-${{ github.ref_name }}/
+          cp config.cfg.template portknock.service target/portknock-${{ github.ref_name }}/
           tar Jcvf target/portknock-${{ github.ref_name }}.tar.xz target/portknock-${{ github.ref_name }}
 
       - name: Create release
